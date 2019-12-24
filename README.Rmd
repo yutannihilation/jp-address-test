@@ -1,0 +1,155 @@
+---
+title: "JP Addresses"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+data_dir <- here::here("data")
+ken_all <- file.path(data_dir, "KEN_ALL.CSV")
+```
+
+Most of the code here is from https://uribo.hatenablog.com/entry/2019/12/22/102452. Thanks [@uribo](https://github.com/uribo)!
+
+### Get data
+
+```{r get_data, eval=!file.exists(ken_all)}
+dir.create(data_dir, showWarnings = FALSE)
+temp <- tempfile(fileext = ".zip")
+download.file("https://www.post.japanpost.jp/zipcode/dl/oogaki/zip/ken_all.zip", temp)
+unzip(temp, exdir = data_dir)
+```
+
+### Load data
+
+```{r load_data}
+library(dplyr, warn.conflicts = FALSE)
+library(zipangu)
+library(stringr)
+
+df <- read_zipcode(path = ken_all, type = "kogaki") %>%
+  select(jis_code, zip_code, prefecture, city, street, is_cyoumoku) %>% 
+  tibble::rowid_to_column()
+
+nrow(df)
+
+head(df)
+```
+
+### Duplicated columns
+
+```{r show_dup}
+df %>% 
+  group_by(zip_code, city, street) %>% 
+  filter(n() > 1)
+```
+
+```{r remove_dup}
+df <- df %>% 
+  group_by(zip_code, city, street) %>% 
+  filter(row_number() == 1) %>%
+  ungroup()
+```
+
+### Multi-line columns
+
+```{r num_of_parenthesis}
+sum(str_count(df$street, fixed("(")))
+sum(str_count(df$street, fixed(")")))
+# 全角
+sum(str_count(df$street, fixed("（")))
+sum(str_count(df$street, fixed("）")))
+```
+
+```{r mark_multi_line}
+df_marked <- df %>%
+  mutate(
+    opening_paren = cumsum(str_count(street, fixed("("))),
+    closing_paren = cumsum(str_count(street, fixed(")"))),
+    # increase id when
+    # 1) the last line is a single-line row
+    # 2) the last line is the end of multi-line rows
+    row_group_id  = cumsum(lag(opening_paren == closing_paren, default = 0))
+  )
+
+# multi-line rows
+df_marked %>%
+  group_by(row_group_id) %>% 
+  filter(n() > 1) %>% 
+  head()
+```
+
+Confirm `jis_code`, `zip_code`, `prefecture`, `city` and `is_cyoumoku` are the same value within the same `row_group_id`.
+
+```{r validate_multi_line}
+nrow(distinct(df_marked, row_group_id))
+nrow(distinct(df_marked, ))
+```
+
+```{r concat_multi_line}
+df <- df_marked %>%
+  group_by(jis_code, zip_code, prefecture, city, is_cyoumoku, row_group_id) %>%
+  # ensure the rows are in the original order
+  arrange(rowid) %>%
+  summarise(street = paste(street, collapse = ""), n = n()) %>% 
+  ungroup()
+
+# check if the streets are concatinated fine
+df %>%
+  filter(n > 1) %>%
+  select(zip_code, street) %>% 
+  head()
+```
+
+```{r clean_multi_line}
+# remove unncessary columns
+df <- df %>% 
+  select(jis_code, zip_code, prefecture, city, is_cyoumoku, street)
+```
+
+### Extract streets
+
+Which columns have multiple parenthesis?
+
+```{r multi_paren}
+str_subset(df$street, "\\(.*\\(")
+```
+
+These rows don't need to be extracted, so let's ignore them.
+
+```{r extract}
+library(tidyr)
+
+df_extracted <- df %>%
+  extract(street, c("base", "variants"), "^([^\\(]+)(\\([^\\(]*[、〜][^\\(]*\\))?$")
+
+df_extracted %>% 
+  filter(!is.na(variants)) %>% 
+  head
+```
+
+```{r prepare_for_split}
+df_extracted <- df_extracted %>% 
+  filter(!is.na(variants)) %>% 
+  # remove head and tail parenthesis
+  mutate(variants = str_remove_all(variants, "^\\(|\\)$")) %>%
+  # extract 丁目|番地
+  extract(variants, c("variants", "unit"), "^(.*?)(丁目|番地)?$")
+```
+
+```{r split}
+swap_comma <- function(x) stringr::str_replace_all(x, fixed("、"), "%%%comma%%%")
+restore_comma <- function(x) stringr::str_replace_all(x, fixed("%%%comma%%%"), "、")
+
+df_extracted <- df_extracted %>% 
+  # replace 、 inside 「」 to prevent them from being split
+  mutate(variants = str_replace_all(variants, "「.*?」", swap_comma)) %>% 
+  # split by 、
+  separate_rows(variants, sep = "、") %>% 
+  # replace 、 inside 「」 before spliting
+  mutate(variants = restore_comma(variants))
+
+# check the contents
+str_subset(df_extracted$variants, "「|」")
+```
