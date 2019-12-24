@@ -269,7 +269,7 @@ df_extracted <- df_extracted %>%
   mutate(variants = str_replace_all(variants, "「.*?」", swap_comma)) %>% 
   # split by 、
   separate_rows(variants, sep = "、") %>% 
-  # replace 、 inside 「」 before spliting
+  # restore 、 inside 「」
   mutate(variants = restore_comma(variants))
 
 # check the contents
