@@ -3,7 +3,7 @@ JP Addresses
 
 Most of the code here is from
 <https://uribo.hatenablog.com/entry/2019/12/22/102452>. Thanks
-\[@uribo\](<https://github.com/uribo>)\!
+[@uribo](https://github.com/uribo)\!
 
 ### Get data
 
@@ -135,10 +135,10 @@ nrow(distinct(df_marked, row_group_id))
     ## [1] 124042
 
 ``` r
-nrow(distinct(df_marked, ))
+nrow(distinct(df_marked, jis_code, zip_code, prefecture, city, is_cyoumoku, row_group_id))
 ```
 
-    ## [1] 124349
+    ## [1] 124042
 
 ``` r
 df <- df_marked %>%

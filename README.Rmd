@@ -10,7 +10,7 @@ data_dir <- here::here("data")
 ken_all <- file.path(data_dir, "KEN_ALL.CSV")
 ```
 
-Most of the code here is from https://uribo.hatenablog.com/entry/2019/12/22/102452. Thanks [@uribo](https://github.com/uribo)!
+Most of the code here is from https://uribo.hatenablog.com/entry/2019/12/22/102452. Thanks [\@uribo](https://github.com/uribo)!
 
 ### Get data
 
@@ -84,7 +84,7 @@ Confirm `jis_code`, `zip_code`, `prefecture`, `city` and `is_cyoumoku` are the s
 
 ```{r validate_multi_line}
 nrow(distinct(df_marked, row_group_id))
-nrow(distinct(df_marked, ))
+nrow(distinct(df_marked, jis_code, zip_code, prefecture, city, is_cyoumoku, row_group_id))
 ```
 
 ```{r concat_multi_line}
