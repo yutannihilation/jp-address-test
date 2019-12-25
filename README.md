@@ -23,6 +23,7 @@ library(stringr)
 
 df <- read_zipcode(path = ken_all, type = "kogaki") %>%
   select(jis_code, zip_code, prefecture, city, street, is_cyoumoku) %>% 
+  # add rowid at this stage because grouped-df might be rearranged depending on the version of dplyr...
   tibble::rowid_to_column()
 
 nrow(df)
@@ -46,6 +47,8 @@ head(df)
 
 ### Duplicated columns
 
+All duplicated columns are only these two pairs:
+
 ``` r
 df %>% 
   group_by(zip_code, city, street) %>% 
@@ -61,6 +64,8 @@ df %>%
     ## 3 89850 28203    6730012  兵庫県     明石市 和坂             0
     ## 4 89923 28203    6730012  兵庫県     明石市 和坂             1
 
+Let’s choose the first ones.
+
 ``` r
 df <- df %>% 
   group_by(zip_code, city, street) %>% 
@@ -69,6 +74,14 @@ df <- df %>%
 ```
 
 ### Multi-line columns
+
+Multi-line columns can be detected by detecting the imbalance of
+parenthesis. Before running into it, check these assumptions are true:
+
+1.  Opening parenthesis is always paired with a closing parenthesis
+2.  Only half-width parenthesis is used
+
+<!-- end list -->
 
 ``` r
 sum(str_count(df$street, fixed("(")))
@@ -94,6 +107,8 @@ sum(str_count(df$street, fixed("）")))
 ```
 
     ## [1] 0
+
+Seems fine. Let’s move on.
 
 ``` r
 df_marked <- df %>%
@@ -126,7 +141,8 @@ df_marked %>%
     ## # … with 2 more variables: closing_paren <int>, row_group_id <dbl>
 
 Confirm `jis_code`, `zip_code`, `prefecture`, `city` and `is_cyoumoku`
-are the same value within the same `row_group_id`.
+are the same value within the same `row_group_id`. If any of them
+differ, it means `row_group_id` was numbered wrongly.
 
 ``` r
 nrow(distinct(df_marked, row_group_id))
@@ -173,7 +189,18 @@ df <- df %>%
 
 ### Extract streets
 
-Which columns have multiple parenthesis?
+The contents of parenthesis in `streets` needs to be extracted.
+
+But, it seems some columns have multiple parenthesis, which might be
+problematic.
+
+``` r
+max(str_count(df$street, "\\(.*\\("))
+```
+
+    ## [1] 1
+
+So, which columns have multiple parenthesis?
 
 ``` r
 str_subset(df$street, "\\(.*\\(")
@@ -228,7 +255,26 @@ str_subset(df$street, "\\(.*\\(")
     ## [47] "名駅ミッドランドスクエア(高層棟)(47階)"          
     ## [48] "名駅ミッドランドスクエア(高層棟)(地階・階層不明)"
 
-These rows don’t need to be extracted, so let’s ignore them.
+These rows don’t need to be extracted, so let’s ignore them and consider
+only one parenthesis. We split `streets` into two part `base` (the part
+before parenthesis) and `variants` (the part within parenthesis). For
+example:
+
+    大通り(1〜3番地)
+    --+-- --+----
+      |     |
+      |     +-- variants
+      +--------- base
+
+But, be careful, if the contents of parenthesis doesn’t contain `、` or
+`〜`, we can leave them as it is. For example,
+
+    名駅ミッドランドスクエア(高層棟)(47階)
+    --+--------------------------------
+      |
+      +-- base
+
+OK, let’s move on.
 
 ``` r
 library(tidyr)

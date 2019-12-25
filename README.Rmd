@@ -30,6 +30,7 @@ library(stringr)
 
 df <- read_zipcode(path = ken_all, type = "kogaki") %>%
   select(jis_code, zip_code, prefecture, city, street, is_cyoumoku) %>% 
+  # add rowid at this stage because grouped-df might be rearranged depending on the version of dplyr...
   tibble::rowid_to_column()
 
 nrow(df)
@@ -39,11 +40,15 @@ head(df)
 
 ### Duplicated columns
 
+All duplicated columns are only these two pairs:
+
 ```{r show_dup}
 df %>% 
   group_by(zip_code, city, street) %>% 
   filter(n() > 1)
 ```
+
+Let's choose the first ones.
 
 ```{r remove_dup}
 df <- df %>% 
@@ -54,6 +59,12 @@ df <- df %>%
 
 ### Multi-line columns
 
+Multi-line columns can be detected by detecting the imbalance of parenthesis.
+Before running into it, check these assumptions are true:
+
+1. Opening parenthesis is always paired with a closing parenthesis
+2. Only half-width parenthesis is used
+
 ```{r num_of_parenthesis}
 sum(str_count(df$street, fixed("(")))
 sum(str_count(df$street, fixed(")")))
@@ -61,6 +72,8 @@ sum(str_count(df$street, fixed(")")))
 sum(str_count(df$street, fixed("（")))
 sum(str_count(df$street, fixed("）")))
 ```
+
+Seems fine. Let's move on.
 
 ```{r mark_multi_line}
 df_marked <- df %>%
@@ -80,12 +93,14 @@ df_marked %>%
   head()
 ```
 
-Confirm `jis_code`, `zip_code`, `prefecture`, `city` and `is_cyoumoku` are the same value within the same `row_group_id`.
+Confirm `jis_code`, `zip_code`, `prefecture`, `city` and `is_cyoumoku` are the same value within the same `row_group_id`. If any of them differ, it means `row_group_id` was numbered wrongly.
 
 ```{r validate_multi_line}
 nrow(distinct(df_marked, row_group_id))
 nrow(distinct(df_marked, jis_code, zip_code, prefecture, city, is_cyoumoku, row_group_id))
 ```
+
+
 
 ```{r concat_multi_line}
 df <- df_marked %>%
@@ -110,19 +125,49 @@ df <- df %>%
 
 ### Extract streets
 
-Which columns have multiple parenthesis?
+The contents of parenthesis in `streets` needs to be extracted.
+
+But, it seems some columns have multiple parenthesis, which might be problematic.
+
+```{r max_paren}
+max(str_count(df$street, "\\(.*\\("))
+```
+
+So, which columns have multiple parenthesis?
 
 ```{r multi_paren}
 str_subset(df$street, "\\(.*\\(")
 ```
 
-These rows don't need to be extracted, so let's ignore them.
+These rows don't need to be extracted, so let's ignore them and consider only one parenthesis.
+We split `streets` into two part `base` (the part before parenthesis) and `variants` (the part within parenthesis).
+For example:
+
+```
+大通り(1〜3番地)
+--+-- --+----
+  |     |
+  |     +-- variants
+  +--------- base
+```
+
+But, be careful, if the contents of parenthesis doesn't contain `、`, `〜`, or `・`, we can leave them as it is.
+For example,
+
+```
+名駅ミッドランドスクエア(高層棟)(47階)
+--+----------------------------
+  |
+  +-- base
+```
+
+OK, let's move on.
 
 ```{r extract}
 library(tidyr)
 
 df_extracted <- df %>%
-  extract(street, c("base", "variants"), "^([^\\(]+)(\\([^\\(]*[、〜][^\\(]*\\))?$")
+  extract(street, c("base", "variants"), "^([^\\(]+)(\\([^\\(]*[、〜・][^\\(]*\\))?$")
 
 df_extracted %>% 
   filter(!is.na(variants)) %>% 
@@ -132,16 +177,11 @@ df_extracted %>%
 ```{r prepare_for_split}
 df_extracted <- df_extracted %>% 
   filter(!is.na(variants)) %>% 
-  # remove head and tail parenthesis
-  mutate(variants = str_remove_all(variants, "^\\(|\\)$")) %>%
   # extract 丁目|番地
   extract(variants, c("variants", "unit"), "^(.*?)(丁目|番地)?$")
 ```
 
 ```{r split}
-swap_comma <- function(x) stringr::str_replace_all(x, fixed("、"), "%%%comma%%%")
-restore_comma <- function(x) stringr::str_replace_all(x, fixed("%%%comma%%%"), "、")
-
 df_extracted <- df_extracted %>% 
   # replace 、 inside 「」 to prevent them from being split
   mutate(variants = str_replace_all(variants, "「.*?」", swap_comma)) %>% 
