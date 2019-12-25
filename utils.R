@@ -1,6 +1,8 @@
 swap_comma <- function(x) stringr::str_replace_all(x, fixed("、"), "%%%comma%%%")
 restore_comma <- function(x) stringr::str_replace_all(x, fixed("%%%comma%%%"), "、")
 
+split_pattern <- "、|・"
+
 extract_variants <- function(x) {
   # str_subset(df$street, "\\(.*・.*\\)") %>% str_subset("地階・階層不明", negate = TRUE)
   # #>  [1] "野牛(稲崎平302番地・315番地、トクサ沢)"    "三里塚(御料牧場・成田国際空港内)"         
@@ -33,16 +35,58 @@ extract_variants <- function(x) {
   x
 }
 
+pattern_comma <- fixed("、")
+pattern_cdot  <- fixed("・")
+pattern_tilda <- fixed("~")
+patterns <- fixed(c("、", "・", "~"))
+
 extract_variants_one <- function(x) {
-  if (x %in% ignore_list) {
+  i <- str_detect(x, patterns)
+
+  # if x has no chance to split, return it as is
+  if (!any(i)) {
     return(x)
   }
   
+  # if x has 、, split by it first
+  if (i[1]) {
+    x <- str_split(x, pattern_comma)
+    # if it should be split further, apply extract_variants_one() recursively
+    if (i[2] || i[3]) {
+      x <- purrr::map(x, extract_variants_one)
+    }
+    # flatten and return it
+    return(purrr::flatten_chr(x))
+  }
+
+  # if x has ・ , split by it
+  if (i[2]) {
+    x <- str_split(x, pattern_cdot)
+    # if it should be split further, apply extract_variants_one() recursively
+    if (i[3]) {
+      x <- purrr::map(x, extract_variants_one)
+    }
+    # flatten and return it
+    return(purrr::flatten_chr(x))
+  }
+  
+  # if x has ~, enumerate it
+  if (i[3]) {
+    enumerate_tilda(x)
+  }
+  
+  # should not come here...
+  stop("something is wrong!", call. = FALSE)
+}
+
+enumerate_tilda <- function(x) {
   x
 }
 
 # simple tests
 local({
+  testthat::expect_equal(extract_variants_one("1、2、3番地"),
+                         c("1番地", "2番地", "3番地"))
   testthat::expect_equal(extract_variants("(5614、5619、5647、5653番地)"),
                          c("5614番地", "5619番地", "5647番地", "5653番地"))
   testthat::expect_equal(extract_variants("(1~3丁目、白滝B・C、高見)"),

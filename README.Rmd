@@ -130,7 +130,7 @@ The contents of parenthesis in `streets` needs to be extracted.
 But, it seems some columns have multiple parenthesis, which might be problematic.
 
 ```{r max_paren}
-max(str_count(df$street, "\\(.*\\("))
+max(str_count(df$street, fixed("(")))
 ```
 
 So, which columns have multiple parenthesis?
@@ -174,22 +174,9 @@ df_extracted %>%
   head
 ```
 
-```{r prepare_for_split}
-df_extracted <- df_extracted %>% 
-  filter(!is.na(variants)) %>% 
-  # extract 丁目|番地
-  extract(variants, c("variants", "unit"), "^(.*?)(丁目|番地)?$")
-```
+### TODO
 
-```{r split}
-df_extracted <- df_extracted %>% 
-  # replace 、 inside 「」 to prevent them from being split
-  mutate(variants = str_replace_all(variants, "「.*?」", swap_comma)) %>% 
-  # split by 、
-  separate_rows(variants, sep = "、") %>% 
-  # restore 、 inside 「」
-  mutate(variants = restore_comma(variants))
-
-# check the contents
-str_subset(df_extracted$variants, "「|」")
+```{r todo}
+str_subset(df_extracted$variants, "\\(.*、|・|~.*\\)")
+# str_subset(df_extracted$variants, "(?<=\\d)[^\\d]+\\)$")
 ```
